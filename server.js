@@ -9,8 +9,8 @@ const categoryRoutes = require('./routes/categories');
 const tagRoutes = require('./routes/tags');
 
 const app = express();
-const PORT = 5000;
-const IP = '192.168.1.77';
+// const PORT = 5000;
+// const IP = '192.168.1.77';
 
 // Middleware
 app.use(cors());
@@ -174,6 +174,7 @@ app.get('/api/user/profile', auth, async (req, res) => {
 
 
 // Start server
-app.listen(PORT, IP, () => {
-  console.log(`Server running on http://${IP}:${PORT}`);
+const PORT = process.env.PORT || 5000; // use Render's port or fallback
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
