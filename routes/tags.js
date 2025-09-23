@@ -4,7 +4,7 @@ const { auth } = require('../middleware/auth');
 const router = express.Router();
 
 // Get all tags
-router.get('/', auth, async (req, res) => {
+router.get('/',  async (req, res) => {
   try {
     const tags = await Tag.find().sort({ name: 1 });
     res.json(tags);
