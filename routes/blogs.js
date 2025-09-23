@@ -6,7 +6,7 @@ const { auth } = require('../middleware/auth');
 const router = express.Router();
 
 // Get all blogs with filtering and pagination
-router.get('/', auth, async (req, res) => {
+router.get('/',  async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -64,11 +64,14 @@ router.get('/', auth, async (req, res) => {
 });
 
 // Get single blog by ID
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id',  async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id)
+
       .populate('category', 'name')
       .populate('tags', 'name');
+
+      console.log(blog)
     
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
@@ -81,7 +84,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create new blog
-router.post('/', auth, async (req, res) => {
+router.post('/',auth,  async (req, res) => {
   try {
     const { title, author, content, category, tags, featuredImage, status } = req.body;
     
@@ -134,7 +137,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Update blog
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth,  async (req, res) => {
   try {
     const { title, author, content, category, tags, featuredImage, status } = req.body;
     
@@ -189,7 +192,7 @@ router.put('/:id', auth, async (req, res) => {
 });
 
 // Delete blog
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id',auth,  async (req, res) => {
   try {
     const blog = await Blog.findByIdAndDelete(req.params.id);
     
