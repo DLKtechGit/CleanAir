@@ -1,16 +1,18 @@
+// server.js (modified - added user routes and modifications to existing routes)
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const User = require('./models/User');
+const Blog = require('./models/Blog')
 const { auth, JWT_SECRET } = require('./middleware/auth');
 const blogRoutes = require('./routes/blogs');
 const categoryRoutes = require('./routes/categories');
 const tagRoutes = require('./routes/tags');
 
 const app = express();
-const PORT = 5000;
-const IP = '192.168.1.77';
+// const PORT = 5000;
+// const IP = '192.168.1.77';
 
 // Middleware
 app.use(cors());
@@ -25,13 +27,11 @@ mongoose.connect('mongodb+srv://prithuapp_db_user:HGJrArUgliryTq3T@cluster0.x0vk
 .catch(err => console.error('MongoDB connection error:', err));
 
 // Routes
-
-
 app.use('/api/blogs', blogRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/tags', tagRoutes);
 
-// Signup endpoint
+// Signup endpoint (public, creates childadmin by default)
 app.post('/api/signup', async (req, res) => {
   try {
     const { firstName, lastName, email, password, confirmPassword, agreeToTerms } = req.body;
@@ -80,7 +80,8 @@ app.post('/api/signup', async (req, res) => {
         id: user._id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email
+        email: user.email,
+        role: user.role || 'admin'  // Treat old users as admin
       }
     });
   } catch (error) {
@@ -125,7 +126,8 @@ app.post('/api/signin', async (req, res) => {
         id: user._id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email
+        email: user.email,
+        role: user.role || 'admin'  // Treat old users as admin
       }
     });
   } catch (error) {
@@ -135,14 +137,15 @@ app.post('/api/signin', async (req, res) => {
 });
 
 // Protected route example
-app.get('/api/user', auth, async (req, res) => {
+app.get('/api/user',  async (req, res) => {
   try {
     res.json({
       user: {
         id: req.user._id,
         firstName: req.user.firstName,
         lastName: req.user.lastName,
-        email: req.user.email
+        email: req.user.email,
+        role: req.user.role || 'admin'  // Treat old users as admin
       }
     });
   } catch (error) {
@@ -150,7 +153,6 @@ app.get('/api/user', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
-
 
 // Get current user profile
 app.get('/api/user/profile', auth, async (req, res) => {
@@ -162,7 +164,8 @@ app.get('/api/user/profile', auth, async (req, res) => {
         firstName: req.user.firstName,
         lastName: req.user.lastName,
         email: req.user.email,
-        createdAt: req.user.createdAt
+        createdAt: req.user.createdAt,
+        role: req.user.role || 'admin'  // Treat old users as admin
       }
     });
   } catch (error) {
@@ -171,9 +174,91 @@ app.get('/api/user/profile', auth, async (req, res) => {
   }
 });
 
+// New User Routes for Admin Management (protected)
+const userRoutes = express.Router();
 
+// Get all childadmins with counts (only for admins)
+userRoutes.get('/', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role) {  // Allow if role undefined (old admin)
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const users = await User.find({ role: 'childadmin' }).select('-password -agreeToTerms');
+
+    const usersWithCounts = await Promise.all(users.map(async (user) => {
+      const publishedCount = await Blog.countDocuments({ createdBy: user._id, status: 'published' });
+      const draftCount = await Blog.countDocuments({ createdBy: user._id, status: 'draft' });
+      return {
+        ...user.toObject(),
+        publishedCount,
+        draftCount
+      };
+    }));
+
+    res.json(usersWithCounts);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Server error fetching users' });
+  }
+});
+
+// Create new childadmin (only for admins)
+userRoutes.post('/', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role) {  // Allow if role undefined (old admin)
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { firstName, lastName, email, password, confirmPassword } = req.body;
+
+    // Validation
+    if (!firstName || !lastName || !email || !password || !confirmPassword) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ message: 'Passwords do not match' });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists with this email' });
+    }
+
+    // Create new childadmin
+    const user = new User({
+      firstName,
+      lastName,
+      email,
+      password,
+      agreeToTerms: true,  // Auto-agree for admin-created
+      role: 'childadmin'
+    });
+
+    await user.save();
+
+    res.status(201).json({
+      message: 'Child admin created successfully',
+      user: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ message: 'Server error creating user' });
+  }
+});
+
+app.use('/api/users', userRoutes);
 
 // Start server
-app.listen(PORT, IP, () => {
-  console.log(`Server running on http://${IP}:${PORT}`);
+const PORT = process.env.PORT || 5000; // use Render's port or fallback
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

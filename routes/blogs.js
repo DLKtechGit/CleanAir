@@ -1,3 +1,4 @@
+// routes/blogs.js (modified - added populate createdBy)
 const express = require('express');
 const Blog = require('../models/Blog');
 const Category = require('../models/Category');
@@ -6,7 +7,7 @@ const { auth } = require('../middleware/auth');
 const router = express.Router();
 
 // Get all blogs with filtering and pagination
-router.get('/', auth, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -39,10 +40,11 @@ router.get('/', auth, async (req, res) => {
       ];
     }
     
-    // Get blogs with populated category and tags
+    // Get blogs with populated category, tags, and createdBy
     const blogs = await Blog.find(filter)
       .populate('category', 'name')
       .populate('tags', 'name')
+      .populate('createdBy', 'firstName lastName')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -64,11 +66,12 @@ router.get('/', auth, async (req, res) => {
 });
 
 // Get single blog by ID
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id)
       .populate('category', 'name')
-      .populate('tags', 'name');
+      .populate('tags', 'name')
+      .populate('createdBy', 'firstName lastName');
     
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
@@ -123,9 +126,10 @@ router.post('/', auth, async (req, res) => {
     
     await blog.save();
     
-    // Populate category and tags for response
+    // Populate category, tags, and createdBy for response
     await blog.populate('category', 'name');
     await blog.populate('tags', 'name');
+    await blog.populate('createdBy', 'firstName lastName');
     
     res.status(201).json(blog);
   } catch (error) {
@@ -178,9 +182,10 @@ router.put('/:id', auth, async (req, res) => {
     
     await blog.save();
     
-    // Populate category and tags for response
+    // Populate category, tags, and createdBy for response
     await blog.populate('category', 'name');
     await blog.populate('tags', 'name');
+    await blog.populate('createdBy', 'firstName lastName');
     
     res.json(blog);
   } catch (error) {
