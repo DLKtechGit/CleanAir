@@ -8,7 +8,10 @@ const Blog = require('./models/Blog')
 const { auth, JWT_SECRET } = require('./middleware/auth');
 const blogRoutes = require('./routes/blogs');
 const categoryRoutes = require('./routes/categories');
+const contactRoutes = require('./routes/contact');
+const productRoutes = require('./routes/productCatalogue')
 const tagRoutes = require('./routes/tags');
+const path = require('path');
 
 const app = express();
 // const PORT = 5000;
@@ -30,14 +33,19 @@ mongoose.connect('mongodb+srv://prithuapp_db_user:HGJrArUgliryTq3T@cluster0.x0vk
 app.use('/api/blogs', blogRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/tags', tagRoutes);
+app.use('/api', contactRoutes);
+app.use('/api', productRoutes);
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 
 // Signup endpoint (public, creates childadmin by default)
 app.post('/api/signup', async (req, res) => {
   try {
-    const { firstName, lastName, email, password, confirmPassword, agreeToTerms } = req.body;
+    const { firstName, lastName, username, email, password, confirmPassword, agreeToTerms } = req.body;
 
     // Validation
-    if (!firstName || !lastName || !email || !password || !confirmPassword) {
+    if (!firstName || !lastName || !username || !email || !password || !confirmPassword) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -50,18 +58,20 @@ app.post('/api/signup', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+      return res.status(400).json({ message: 'User already exists with this email or username' });
     }
 
     // Create new user
     const user = new User({
       firstName,
       lastName,
+      username,
       email,
       password,
-      agreeToTerms
+      agreeToTerms,
+      role: 'publisher'
     });
 
     await user.save();
@@ -81,7 +91,7 @@ app.post('/api/signup', async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        role: user.role || 'admin'  // Treat old users as admin
+        role: user.role
       }
     });
   } catch (error) {
@@ -93,23 +103,23 @@ app.post('/api/signup', async (req, res) => {
 // Signin endpoint
 app.post('/api/signin', async (req, res) => {
   try {
-    const { email, password, rememberMe } = req.body;
+    const { loginId, password, rememberMe } = req.body;
 
     // Validation
-    if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+    if (!loginId || !password) {
+      return res.status(400).json({ message: 'Username/email and password are required' });
     }
 
     // Find user
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ $or: [{ email: loginId }, { username: loginId }] });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({ message: 'Invalid username/email or password' });
     }
 
     // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid email or password' });
+      return res.status(400).json({ message: 'Invalid username/email or password' });
     }
 
     // Generate JWT token
@@ -127,7 +137,7 @@ app.post('/api/signin', async (req, res) => {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        role: user.role || 'admin'  // Treat old users as admin
+        role: user.role
       }
     });
   } catch (error) {
@@ -137,7 +147,7 @@ app.post('/api/signin', async (req, res) => {
 });
 
 // Protected route example
-app.get('/api/user',  async (req, res) => {
+app.get('/api/user', auth, async (req, res) => {
   try {
     res.json({
       user: {
@@ -145,7 +155,7 @@ app.get('/api/user',  async (req, res) => {
         firstName: req.user.firstName,
         lastName: req.user.lastName,
         email: req.user.email,
-        role: req.user.role || 'admin'  // Treat old users as admin
+        role: req.user.role
       }
     });
   } catch (error) {
@@ -165,7 +175,7 @@ app.get('/api/user/profile', auth, async (req, res) => {
         lastName: req.user.lastName,
         email: req.user.email,
         createdAt: req.user.createdAt,
-        role: req.user.role || 'admin'  // Treat old users as admin
+        role: req.user.role
       }
     });
   } catch (error) {
@@ -180,11 +190,11 @@ const userRoutes = express.Router();
 // Get all childadmins with counts (only for admins)
 userRoutes.get('/', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin' && req.user.role) {  // Allow if role undefined (old admin)
+    if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const users = await User.find({ role: 'childadmin' }).select('-password -agreeToTerms');
+    const users = await User.find({ role: { $in: ['publisher', 'editor'] } }).select('-password -agreeToTerms');
 
     const usersWithCounts = await Promise.all(users.map(async (user) => {
       const publishedCount = await Blog.countDocuments({ createdBy: user._id, status: 'published' });
@@ -206,35 +216,40 @@ userRoutes.get('/', auth, async (req, res) => {
 // Create new childadmin (only for admins)
 userRoutes.post('/', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin' && req.user.role) {  // Allow if role undefined (old admin)
+    if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { firstName, lastName, email, password, confirmPassword } = req.body;
+    const { firstName, lastName, username, email, password, confirmPassword, role } = req.body;
 
     // Validation
-    if (!firstName || !lastName || !email || !password || !confirmPassword) {
-      return res.status(400).json({ message: 'All fields are required' });
+    if (!firstName || !lastName || !username || !password || !confirmPassword || !role) {
+      return res.status(400).json({ message: 'First name, last name, username, password, confirm password, and role are required' });
     }
 
     if (password !== confirmPassword) {
       return res.status(400).json({ message: 'Passwords do not match' });
     }
 
+    if (!['publisher', 'editor'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+      return res.status(400).json({ message: 'User already exists with this email or username' });
     }
 
     // Create new childadmin
     const user = new User({
       firstName,
       lastName,
-      email,
+      username,
+      email: email || undefined, // Email is optional
       password,
       agreeToTerms: true,  // Auto-agree for admin-created
-      role: 'childadmin'
+      role
     });
 
     await user.save();

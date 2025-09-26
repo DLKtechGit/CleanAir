@@ -12,9 +12,15 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  email: {
+  username: {
     type: String,
     required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  email: {
+    type: String,
     unique: true,
     lowercase: true,
     trim: true
@@ -31,8 +37,8 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'childadmin'],
-    default: 'childadmin'
+    enum: ['admin', 'publisher', 'editor'],
+    default: 'publisher'
   },
   createdAt: {
     type: Date,

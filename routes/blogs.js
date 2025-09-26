@@ -1,10 +1,48 @@
-// routes/blogs.js (modified - added populate createdBy)
 const express = require('express');
 const Blog = require('../models/Blog');
 const Category = require('../models/Category');
 const Tag = require('../models/Tag');
 const { auth } = require('../middleware/auth');
 const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/'); // Ensure this folder exists in your project root
+  },
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const filetypes = /jpeg|jpg|png/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Images only (jpg, jpeg, png)!'));
+    }
+  }
+});
+
+// Get all blogs with filtering and pagination
+router.post('/upload-image', auth, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No image uploaded' });
+    }
+    const imagePath = `/uploads/${req.file.filename}`;
+    res.status(200).json({ imageUrl: `http://192.168.1.77:5000${imagePath}` });
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    res.status(500).json({ message: 'Server error uploading image' });
+  }
+});
 
 // Get all blogs with filtering and pagination
 router.get('/', async (req, res) => {
@@ -44,7 +82,7 @@ router.get('/', async (req, res) => {
     const blogs = await Blog.find(filter)
       .populate('category', 'name')
       .populate('tags', 'name')
-      .populate('createdBy', 'firstName lastName')
+      .populate('createdBy', 'firstName lastName role')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
@@ -71,7 +109,7 @@ router.get('/:id', async (req, res) => {
     const blog = await Blog.findById(req.params.id)
       .populate('category', 'name')
       .populate('tags', 'name')
-      .populate('createdBy', 'firstName lastName');
+      .populate('createdBy', 'firstName lastName role');
     
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
@@ -83,8 +121,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Create new blog
-router.post('/', auth, async (req, res) => {
+// Create new blog with image upload
+router.post('/', auth, upload.array('images', 10), async (req, res) => {
   try {
     const { title, author, content, category, tags, featuredImage, status } = req.body;
     
@@ -101,11 +139,15 @@ router.post('/', auth, async (req, res) => {
     
     // Check if tags exist
     if (tags && tags.length > 0) {
-      const tagsExist = await Tag.find({ _id: { $in: tags } });
-      if (tagsExist.length !== tags.length) {
+      const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      const tagsExist = await Tag.find({ _id: { $in: parsedTags } });
+      if (tagsExist.length !== parsedTags.length) {
         return res.status(400).json({ message: 'One or more tags do not exist' });
       }
     }
+    
+    // Store image paths
+    const imagePaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
     
     // Create blog
     const blog = new Blog({
@@ -113,8 +155,9 @@ router.post('/', auth, async (req, res) => {
       author,
       content,
       category,
-      tags: tags || [],
+      tags: typeof tags === 'string' ? JSON.parse(tags) : tags || [],
       featuredImage: featuredImage || '',
+      images: imagePaths,
       status: status || 'draft',
       createdBy: req.user._id
     });
@@ -129,24 +172,38 @@ router.post('/', auth, async (req, res) => {
     // Populate category, tags, and createdBy for response
     await blog.populate('category', 'name');
     await blog.populate('tags', 'name');
-    await blog.populate('createdBy', 'firstName lastName');
+    await blog.populate('createdBy', 'firstName lastName role');
     
     res.status(201).json(blog);
   } catch (error) {
+    console.error('Error creating blog:', error);
     res.status(500).json({ message: 'Server error creating blog' });
   }
 });
 
-// Update blog
-router.put('/:id', auth, async (req, res) => {
+// Update blog with image upload
+router.put('/:id', auth, upload.array('images', 10), async (req, res) => {
   try {
-    const { title, author, content, category, tags, featuredImage, status } = req.body;
-    
-    // Find blog
     const blog = await Blog.findById(req.params.id);
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
     }
+
+    let allowed = false;
+    if (req.user.role === 'admin') {
+      allowed = true;
+    } else if (blog.createdBy.toString() === req.user._id.toString()) {
+      const keys = Object.keys(req.body);
+      if (keys.length === 1 && keys[0] === 'status') {
+        allowed = true;
+      }
+    }
+
+    if (!allowed) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { title, author, content, category, tags, featuredImage, status } = req.body;
     
     // Check if category exists
     if (category) {
@@ -159,11 +216,12 @@ router.put('/:id', auth, async (req, res) => {
     
     // Check if tags exist
     if (tags) {
-      const tagsExist = await Tag.find({ _id: { $in: tags } });
-      if (tagsExist.length !== tags.length) {
+      const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      const tagsExist = await Tag.find({ _id: { $in: parsedTags } });
+      if (tagsExist.length !== parsedTags.length) {
         return res.status(400).json({ message: 'One or more tags do not exist' });
       }
-      blog.tags = tags;
+      blog.tags = parsedTags;
     }
     
     // Update fields
@@ -171,6 +229,12 @@ router.put('/:id', auth, async (req, res) => {
     if (author) blog.author = author;
     if (content) blog.content = content;
     if (featuredImage !== undefined) blog.featuredImage = featuredImage;
+    
+    // Handle new image uploads
+    if (req.files && req.files.length > 0) {
+      const newImagePaths = req.files.map(file => `/uploads/${file.filename}`);
+      blog.images = [...blog.images, ...newImagePaths];
+    }
     
     // Handle status change
     if (status && status !== blog.status) {
@@ -185,10 +249,11 @@ router.put('/:id', auth, async (req, res) => {
     // Populate category, tags, and createdBy for response
     await blog.populate('category', 'name');
     await blog.populate('tags', 'name');
-    await blog.populate('createdBy', 'firstName lastName');
+    await blog.populate('createdBy', 'firstName lastName role');
     
     res.json(blog);
   } catch (error) {
+    console.error('Error updating blog:', error);
     res.status(500).json({ message: 'Server error updating blog' });
   }
 });
@@ -196,11 +261,16 @@ router.put('/:id', auth, async (req, res) => {
 // Delete blog
 router.delete('/:id', auth, async (req, res) => {
   try {
-    const blog = await Blog.findByIdAndDelete(req.params.id);
-    
+    const blog = await Blog.findById(req.params.id);
     if (!blog) {
       return res.status(404).json({ message: 'Blog not found' });
     }
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    await Blog.findByIdAndDelete(req.params.id);
     
     res.json({ message: 'Blog deleted successfully' });
   } catch (error) {

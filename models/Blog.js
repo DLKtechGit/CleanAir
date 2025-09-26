@@ -32,6 +32,9 @@ const blogSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  images: [{ // New field to store uploaded images
+    type: String // Store paths to uploaded images
+  }],
   status: {
     type: String,
     enum: ['draft', 'published'],
@@ -81,5 +84,6 @@ blogSchema.pre('save', function(next) {
   }
   next();
 });
+
 
 module.exports = mongoose.model('Blog', blogSchema);
