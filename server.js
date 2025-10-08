@@ -36,6 +36,10 @@ app.use('/api/tags', tagRoutes);
 app.use('/api', contactRoutes);
 app.use('/api', productRoutes);
 
+app.get('/', (req, res) => {
+  res.send('Hello root node');
+});
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
