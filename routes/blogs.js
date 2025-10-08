@@ -124,7 +124,7 @@ router.get('/:id', async (req, res) => {
 // Create new blog with image upload
 router.post('/', auth, upload.array('images', 10), async (req, res) => {
   try {
-    const { title, author, content, category, tags, featuredImage, status } = req.body;
+    const { title, author, content, category, tags, featuredImage, status, images: imagesStr } = req.body;
     
     // Validate required fields
     if (!title || !author || !content || !category) {
@@ -146,8 +146,18 @@ router.post('/', auth, upload.array('images', 10), async (req, res) => {
       }
     }
     
-    // Store image paths
-    const imagePaths = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
+    // Handle images from JSON (editor uploads)
+    let blogImages = [];
+    if (imagesStr) {
+      try {
+        blogImages = JSON.parse(imagesStr);
+      } catch (e) {
+        console.error('Invalid images JSON');
+      }
+    }
+
+    // Store image paths from file uploads (full URL)
+    const imagePaths = req.files ? req.files.map(file => `http://192.168.1.77:5000/uploads/${file.filename}`) : [];
     
     // Create blog
     const blog = new Blog({
@@ -157,7 +167,7 @@ router.post('/', auth, upload.array('images', 10), async (req, res) => {
       category,
       tags: typeof tags === 'string' ? JSON.parse(tags) : tags || [],
       featuredImage: featuredImage || '',
-      images: imagePaths,
+      images: [...blogImages, ...imagePaths],
       status: status || 'draft',
       createdBy: req.user._id
     });
@@ -203,7 +213,7 @@ router.put('/:id', auth, upload.array('images', 10), async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { title, author, content, category, tags, featuredImage, status } = req.body;
+    const { title, author, content, category, tags, featuredImage, status, images: imagesStr } = req.body;
     
     // Check if category exists
     if (category) {
@@ -230,9 +240,19 @@ router.put('/:id', auth, upload.array('images', 10), async (req, res) => {
     if (content) blog.content = content;
     if (featuredImage !== undefined) blog.featuredImage = featuredImage;
     
-    // Handle new image uploads
+    // Handle images from JSON (editor uploads, replaces the list)
+    if (imagesStr) {
+      try {
+        const parsedImages = JSON.parse(imagesStr);
+        blog.images = parsedImages;
+      } catch (e) {
+        console.error('Invalid images JSON');
+      }
+    }
+    
+    // Handle new image uploads from files (append)
     if (req.files && req.files.length > 0) {
-      const newImagePaths = req.files.map(file => `/uploads/${file.filename}`);
+      const newImagePaths = req.files.map(file => `http://192.168.1.77:5000/uploads/${file.filename}`);
       blog.images = [...blog.images, ...newImagePaths];
     }
     
