@@ -35,6 +35,7 @@ router.post('/contact', contactValidation, async (req, res) => {
     const {
       'user-name': userName,
       'email-address': emailAddress,
+      'phone-number': phoneNumber,
       'company-name': companyName,
       city,
       country,
@@ -71,7 +72,7 @@ router.post('/contact', contactValidation, async (req, res) => {
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>New Contact Form Submission</h1>
+                    <h2>New Enquiry for Clean Air Systems</h2>
                     <p>You have received a new message from your website contact form</p>
                 </div>
                 <div class="content">
@@ -82,6 +83,10 @@ router.post('/contact', contactValidation, async (req, res) => {
                     <div class="field">
                         <div class="field-label">Email:</div>
                         <div class="field-value">${emailAddress}</div>
+                    </div>
+                    <div class="field">
+                        <div class="field-label">Phone Number:</div>
+                        <div class="field-value">${phoneNumber || 'Not provided'}</div>
                     </div>
                     <div class="field">
                         <div class="field-label">Company Name:</div>
@@ -142,6 +147,7 @@ router.post('/contact', contactValidation, async (req, res) => {
                     <p>Dear ${userName},</p>
                     <p>Thank you for reaching out to Connect Clean Air. We have received your message and will get back to you within 24-48 hours.</p>
                     <p><strong>Here's a summary of your inquiry:</strong></p>
+                    <p>Phone: ${phoneNumber || 'Not provided'}</p>
                     <p>Products of Interest: ${productsList}</p>
                     <p>Message: ${message.substring(0, 200)}${message.length > 200 ? '...' : ''}</p>
                     <br>
